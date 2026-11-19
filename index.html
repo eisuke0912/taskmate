@@ -356,6 +356,40 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
     });
     client.requestAccessToken();
   }
+  /* 画面を出さずに、ログインを自動で更新する（一度許可したアカウントなら、裏で新しい通行証をもらえる）。
+     できなかったときだけ、「再接続」のボタンが残る。 */
+  var pendRefresh={};
+  function silent(a){
+    if(pendRefresh[a.email])return pendRefresh[a.email];
+    var p=new Promise(function(resolve){
+      if(!clientId||!(window.google&&google.accounts&&google.accounts.oauth2)){resolve(false);return}
+      var done=false;function fin(v){if(!done){done=true;resolve(v)}}
+      setTimeout(function(){fin(false)},12000);
+      try{
+        google.accounts.oauth2.initTokenClient({
+          client_id:clientId, scope:SCOPE, prompt:"none", login_hint:a.email,
+          callback:function(resp){
+            if(resp&&resp.access_token&&!resp.error){a.token=resp.access_token;a.exp=Date.now()+(resp.expires_in||3600)*1000-60000;saveA();renderAccts();fin(true)}
+            else fin(false);
+          },
+          error_callback:function(){fin(false)}
+        }).requestAccessToken();
+      }catch(e){fin(false)}
+    }).then(function(ok){delete pendRefresh[a.email];return ok});
+    pendRefresh[a.email]=p;
+    return p;
+  }
+  // 切れている、または、まもなく切れるアカウントを、すべて更新する
+  async function refreshAll(){
+    var changed=false;
+    for(var i=0;i<accts.length;i++){
+      var a=accts[i];
+      if(!a.token&&!a.exp)continue; // 一度も接続していないものは、対象外
+      if(!valid(a)||a.exp-Date.now()<4*60000){if(await silent(a))changed=true}
+    }
+    if(changed)showStatus("");
+    return changed;
+  }
   function disconnect(email){
     var a=acctOf(email); if(!a)return;
     try{if(a.token&&window.google)google.accounts.oauth2.revoke(a.token,function(){})}catch(e){}
@@ -990,13 +1024,13 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
   renderAll();
   showSync();
   syncTasksFile().then(function(){syncDrive()}); // 先にPC内のファイルを読み込み、そのあとでクラウドと合体する
-  loadEvents();
-  loadSugg();
-  loadBrief();
-  loadDrive();
-  setInterval(function(){if(!document.hidden){loadEvents();loadSugg();loadBrief();loadDrive();syncDrive()}},60000);
-  document.addEventListener("visibilitychange",function(){if(!document.hidden){loadEvents();syncDrive()}});
-  accts.forEach(function(a){if(!valid(a))showStatus("期限切れのアカウントがあります。上の「再接続」を押してください。")});
+  function waitGoogle(n){return new Promise(function(res){(function t(){if((window.google&&google.accounts&&google.accounts.oauth2)||n--<=0)res();else setTimeout(t,300)})()})}
+  waitGoogle(25).then(refreshAll).then(function(){
+    loadEvents();loadSugg();loadBrief();loadDrive();syncDrive();
+    accts.forEach(function(a){if(!valid(a))showStatus("期限切れのアカウントがあります。上の「再接続」を押してください。")});
+  });
+  setInterval(function(){if(!document.hidden){refreshAll().then(function(){loadEvents();loadSugg();loadBrief();loadDrive();syncDrive()})}},60000);
+  document.addEventListener("visibilitychange",function(){if(!document.hidden){refreshAll().then(function(){loadEvents();syncDrive()})}});
 })();
 </script>
 </body>
