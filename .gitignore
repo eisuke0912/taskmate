@@ -1,0 +1,11 @@
+# 個人のデータや、パスワードにあたる情報は、公開しない
+tasks.json
+tasks.json.tmp
+backups/
+suggestions.json
+briefings.json
+inbox/
+README-秘書連携.md
+client_secret*.json
+*.tmp
+__pycache__/
