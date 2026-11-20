@@ -434,7 +434,7 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
       });
     });
     var res=await Promise.allSettled(jobs), out=[], failed=false, own={};
-    tasks.forEach(function(t){if(t.eventId)own[t.eventId]=1});
+    tasks.forEach(function(t){if(t.eventId)own[t.eventId]=1;if(t.srcEv)own[t.srcEv]=1});
     res.forEach(function(r){
       if(r.status!=="fulfilled"){failed=true;return}
       r.value.items.forEach(function(ev){
@@ -520,6 +520,7 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
     return t.time?s+" "+t.time:s;
   }
   var TABS=[["all","すべて"],["today","今日"],["soon","これから"],["done","完了"]];
+  var showEv=load("hiyori-showev",false);
   function visible(){
     var ts=tasks.filter(function(t){
       if(tagFilter&&(t.tags||[]).indexOf(tagFilter)<0)return false;
@@ -531,7 +532,8 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
     });
     var es=gEvents.filter(function(e){
       if(tagFilter)return false;
-      if(selDate)return e.date===selDate;
+      if(selDate)return e.date===selDate; // カレンダーで日付を選んだときは、その日の予定も出す
+      if(!showEv)return false;
       if(filter==="today")return e.date===todayStr;
       if(filter==="soon")return e.date>todayStr;
       return false;
@@ -539,7 +541,7 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
     return ts.concat(es).sort(cmp);
   }
   function renderList(){
-    $("tabs").innerHTML=TABS.map(function(t){return '<button class="tab" data-f="'+t[0]+'" aria-pressed="'+(filter===t[0])+'">'+t[1]+'</button>'}).join("");
+    $("tabs").innerHTML=TABS.map(function(t){return '<button class="tab" data-f="'+t[0]+'" aria-pressed="'+(filter===t[0])+'">'+t[1]+'</button>'}).join("")+'<button class="tab" data-showev="1" aria-pressed="'+showEv+'">予定も表示</button>';
     $("chip").innerHTML=selDate?'<span class="chip">'+selDate.replace(/-/g,"/")+' の予定<button id="clr" aria-label="絞り込みを解除">×</button></span>':"";
     $("gmode").innerHTML='<span class="meta" style="padding:5px 4px">まとめ方</span>'+[["date","日付別"],["course","授業別"]].map(function(g){return '<button class="tab" data-g="'+g[0]+'" aria-pressed="'+(gmode===g[0])+'">'+g[1]+'</button>'}).join("");
     var allTags={};
@@ -562,7 +564,7 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
     if(!items.length){$("list").innerHTML='<li class="empty">タスクはありません</li>';return}
     var rows=items.map(function(t){
       var c=colorOf(t.acct), tag=t.acct?'<span class="tag" style="--c:'+c+'"><i></i>'+esc(t.acct.split("@")[0])+'</span>':"";
-      if(t.g)return '<li class="task"><span></span><div><div class="t-title">'+esc(dispTitle(t))+'</div><div class="meta">'+tag+(t.time||"終日")+(t.also?' ・ 同じ予定'+(t.also+1)+'件を統合':'')+'</div></div><span></span></li>';
+      if(t.g)return '<li class="task" data-eid="'+esc(t.id)+'" data-edate="'+esc(t.date)+'"><span></span><div><div class="t-title">'+esc(dispTitle(t))+'</div><div class="meta">'+tag+(t.time||"終日")+(t.also?' ・ 同じ予定'+(t.also+1)+'件を統合':'')+'</div></div><div class="acts"><button class="addt">タスクに追加</button></div></li>';
       if(t.id===editingId)return editRow(t);
       var late=!t.done&&t.date&&t.date<todayStr;
       var subs=t.subs||[], chips="";
@@ -722,9 +724,20 @@ li.task[data-prio="3"] .check{border-color:#6c7a90}
     else if(t.acct&&!t.date)showStatus("日付がないタスクはGoogleカレンダーに登録されません。日付を入れると同期します。");
   });
   $("gmode").addEventListener("click",function(e){var b=e.target.closest("[data-g]");if(!b)return;gmode=b.dataset.g;store("hiyori-gmode",gmode);render()});
-  $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(!b)return;filter=b.dataset.f;selDate="";render()});
+  $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(!b)return;if(b.dataset.showev){showEv=!showEv;store("hiyori-showev",showEv);render();return}filter=b.dataset.f;selDate="";render()});
   $("chip").addEventListener("click",function(e){if(e.target.closest("#clr")){selDate="";render()}});
   $("list").addEventListener("click",function(e){
+    var ab=e.target.closest(".addt");
+    if(ab){ // カレンダーの予定を、タスクとして取り込む（取り込んだものだけが、タスクになる）
+      var eli=ab.closest("li.task"), ev=gEvents.filter(function(x){return x.id===eli.dataset.eid&&x.date===eli.dataset.edate})[0];
+      if(ev){
+        var n=Date.now();
+        tasks.push({id:n,title:ev.title,date:ev.date,time:ev.time||"",done:false,acct:"",eventId:"",srcEv:ev.id,prio:0,tags:[],note:"",rep:"",repUntil:"",nextId:"",subs:[]});
+        gEvents=gEvents.filter(function(x){return x.id!==ev.id});
+        saveT();render();
+      }
+      return;
+    }
     var li=e.target.closest("li.task"); if(!li||!li.dataset.id)return;
     var t=findT(li); if(!t)return;
     var tg=e.target.closest(".tg"); if(tg){tagFilter=tg.dataset.tag;selDate="";render();return}
